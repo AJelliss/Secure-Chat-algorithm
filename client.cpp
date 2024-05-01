@@ -1,75 +1,225 @@
 #include <iostream>
+#include <string>
 #include <cstring>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <thread>
+#include <cmath>
+#include <random>
+#include <vector>
+#include <sstream>
 
-const char* SERVER_IP = "127.0.0.1"; // The IP address of the server
-const int PORT = 8080;
+const int PORT = 8001;
+const char* SERVER_ADDRESS = "127.0.0.1";
 
-void receiveMessages(int clientSocket) {
+bool isPrime(int num) {
+    if (num <= 1)
+        return false;
+    if (num == 2)
+        return true;
+    if (num % 2 == 0)
+        return false;
+    for (int i = 3; i <= sqrt(num); i += 2) {
+        if (num % i == 0)
+            return false;
+    }
+    return true;
+}
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+int modInverse(int a, int m) {
+    for (int x = 1; x < m; x++) {
+        if ((a * x) % m == 1) {
+            return x;
+        }
+    }
+    return -1;
+}
+
+void generateKeys(int p, int q, int &n, int &e, int &d) {
+    n = p * q;
+    int phi = (p - 1) * (q - 1);
+
+    for (e = 2; e < phi; e++) {
+        if (gcd(e, phi) == 1)
+            break;
+    }
+
+    d = modInverse(e, phi);
+}
+
+int modExp(int base, int exponent, int modulus) {
+    if (modulus == 1)
+        return 0;
+    int result = 1;
+    base = base % modulus;
+    while (exponent > 0) {
+        if (exponent % 2 == 1)
+            result = (result * base) % modulus;
+        exponent = exponent >> 1;
+        base = (base * base) % modulus;
+    }
+    return result;
+}
+
+/* int generateRandomPrime(int min, int max) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(min, max);
+    int candidate = dist(gen);
+    while (!isPrime(candidate)) {
+        candidate = dist(gen);
+    }
+    return candidate;
+}
+*/
+
+bool sendPublicKey(int clientSocket, int publicKey, int modulus) {
+    std::string keyMessage = std::to_string(publicKey) + "," + std::to_string(modulus);
+    if (send(clientSocket, keyMessage.c_str(), keyMessage.length(), 0) < 0) {
+        std::cerr << "Error sending public key to server." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool receivePublicKey(int clientSocket, int& ServerpublicKey, int& Servermodulus) {
+    char buffer[1024];
+    int valread = read(clientSocket, buffer, 1024);
+    if (valread <= 0) {
+        std::cerr << "Error receiving public key from server." << std::endl;
+        return false;
+    }
+
+    std::string keyMessage(buffer);
+    size_t delimiterPos = keyMessage.find(",");
+    if (delimiterPos == std::string::npos) {
+        std::cerr << "Invalid format for public key message." << std::endl;
+        return false;
+    }
+
+    ServerpublicKey = std::stoi(keyMessage.substr(0, delimiterPos));
+    Servermodulus = std::stoi(keyMessage.substr(delimiterPos + 1));
+
+    return true;
+}
+
+std::vector<int> rsaEncrypt(const std::string &plaintext, int e, int n) {
+    std::vector<int> ciphertext;
+    for (char c : plaintext) {
+        ciphertext.push_back(modExp(c, e, n));
+    }
+    return ciphertext;
+}
+
+std::string rsaDecrypt(const std::vector<int> &ciphertext, int d, int n) {
+    std::string plaintext;
+    for (int encryptedChar : ciphertext) {
+        plaintext += modExp(encryptedChar, d, n);
+    }
+    return plaintext;
+}
+
+void receiveMessages(int clientSocket, int privateKey, int modulus) {
     char buffer[1024];
     while (true) {
-        memset(buffer, 0, sizeof(buffer));
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-        if (bytesReceived > 0) {
-            std::cout << "Received from server: " << buffer << std::endl;
-        } else {
-            // Connection closed or error occurred
-            std::cerr << "Connection lost or error occurred while receiving." << std::endl;
-            close(clientSocket);
+        int valread = read(clientSocket, buffer, 1024);
+        if (valread <= 0) {
+            std::cout << "Server disconnected." << std::endl;
             break;
         }
+        buffer[valread] = '\0';
+        
+        std::vector<int> ciphertext;
+        std::stringstream ss(buffer);
+        std::string token;
+        while (std::getline(ss, token, ' ')) {
+            ciphertext.push_back(std::stoi(token));
+        }
+        std::string decryptedMessage = rsaDecrypt(ciphertext, privateKey, modulus);
+        std::cout << "Received from server: " << decryptedMessage << std::endl;
     }
 }
 
 int main() {
-    int clientSocket;
+    int p = 61;
+    int q = 53;
+    int clientSocket = 0;
     struct sockaddr_in serverAddress;
 
-    // Create socket
     if ((clientSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation failed");
+        perror("Socket creation error");
         return -1;
     }
 
-    // Set up server address
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(PORT);
-    if (inet_pton(AF_INET, SERVER_IP, &serverAddress.sin_addr) <= 0) {
-        perror("Invalid server address or IP not supported");
-        close(clientSocket);
+
+    if (inet_pton(AF_INET, SERVER_ADDRESS, &serverAddress.sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
         return -1;
     }
 
-    // Connect to the server
     if (connect(clientSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
-        perror("Connection to server failed");
+        perror("Connection failed");
+        return -1;
+    }
+
+    std::cout << "Connected to the server on port " << PORT << std::endl;
+
+    int serverPublicKey, serverModulus;
+    if (!receivePublicKey(clientSocket, serverPublicKey, serverModulus)) {
         close(clientSocket);
         return -1;
     }
 
-    std::cout << "Connected to server at " << SERVER_IP << ":" << PORT << std::endl;
+    std::cout << "Received server's public key: " << serverPublicKey << ", " << serverModulus << std::endl;
 
-    // Start a thread to handle incoming messages from the server
-    std::thread receiveThread(receiveMessages, clientSocket);
+    int mod, publicKey, privateKey;
+    generateKeys(p, q, mod, publicKey, privateKey);
 
-    // Send messages to the server
-    char buffer[1024];
+    if (!sendPublicKey(clientSocket, publicKey, mod)) {
+        close(clientSocket);
+        return -1;
+    }
+
+    std::thread receiveThread(receiveMessages, clientSocket, privateKey, mod);
+    receiveThread.detach();
+
     while (true) {
-        std::cout << "Enter message: ";
-        std::cin.getline(buffer, sizeof(buffer));
+        std::string plaintext;
+        std::getline(std::cin, plaintext);
+        std::stringstream ss;
 
-        // Send message to the server
-        if (send(clientSocket, buffer, strlen(buffer), 0) < 0) {
-            perror("Failed to send message");
+        std::vector<int> encrypted = rsaEncrypt(plaintext, publicKey, mod);
+        std::cout << "Encrypted text: ";
+        for (int encryptedChar : encrypted) {
+            std::cout << encryptedChar << " ";
+            ss << encryptedChar << " ";
+        }
+
+        std::string result = ss.str();
+
+        if (send(clientSocket, result.c_str(), result.length(), 0) < 0) {
+            std::cerr << "Error sending message to server." << std::endl;
+            break;
+        }
+
+        if (plaintext == "exit") {
             break;
         }
     }
 
-    // Clean up
     close(clientSocket);
-    receiveThread.join();
+    std::cout << "Disconnected from the server." << std::endl;
 
     return 0;
 }
