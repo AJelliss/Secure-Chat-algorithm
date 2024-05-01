@@ -8,6 +8,7 @@
 #include <random>
 #include <vector>
 #include <sstream>
+#include "diffieHellman.cpp"
 
 const int PORT = 8003;
 const char* SERVER_ADDRESS = "127.0.0.1";
@@ -102,6 +103,31 @@ bool sendPublicKey(int clientSocket, int publicKey, int modulus) {
     return true;
 }
 
+bool sendDHPublicKey(int clientSocket, int publicKey) {
+    std::string keyMessage = std::to_string(publicKey);
+    if (send(clientSocket, keyMessage.c_str(), keyMessage.length(), 0) < 0) {
+        std::cerr << "Error sending DH public key to client." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+
+bool receiveDHPublicKey(int clientSocket, int& publicKey) {
+    char buffer[1024];
+    int valread = read(clientSocket, buffer, 1024);
+    if (valread <= 0) {
+        std::cerr << "Error receiving public key from client." << std::endl;
+        return false;
+    }
+    std::string keyMessage(buffer);
+
+    publicKey = std::stoi(keyMessage);
+
+    return true;
+}
+
+
 bool receivePublicKey(int clientSocket, int& ServerpublicKey, int& Servermodulus) {
     char buffer[1024];
     int valread = read(clientSocket, buffer, 1024);
@@ -122,6 +148,31 @@ bool receivePublicKey(int clientSocket, int& ServerpublicKey, int& Servermodulus
 
     return true;
 }
+
+bool receiveDHPandG(int clientSocket, int& pVal, int& gVal) {
+    char buffer[1024];
+    int valread = read(clientSocket, buffer, 1024);
+    if (valread <= 0) {
+        std::cerr << "Error receiving public key from server." << std::endl;
+        return false;
+    }
+
+    std::string keyMessage(buffer);
+    size_t delimiterPos = keyMessage.find(",");
+    if (delimiterPos == std::string::npos) {
+        std::cerr << "Invalid format for public key message." << std::endl;
+        return false;
+    }
+
+    pVal = std::stoi(keyMessage.substr(0, delimiterPos));
+    gVal = std::stoi(keyMessage.substr(delimiterPos + 1));
+
+    return true;
+}
+
+
+
+
 
 std::vector<int> rsaEncrypt(const std::string &plaintext, int e, int n) {
     std::vector<int> ciphertext;
@@ -186,6 +237,8 @@ int main() {
 
     std::cout << "Connected to the server on port " << PORT << std::endl;
 
+    // start RSA exchange
+   
     int serverPublicKey, serverModulus;
     if (!receivePublicKey(clientSocket, serverPublicKey, serverModulus)) {
         close(clientSocket);
@@ -193,14 +246,45 @@ int main() {
     }
 
     std::cout << "Received server's public key: " << serverPublicKey << ", " << serverModulus << std::endl;
+    
 
-    int mod, publicKey, privateKey;
+    int mod, publicKey, privateKey, pVal, gVal, serverDHPublic, clientDHpublic, clientDHprivate;
     generateKeys(p, q, mod, publicKey, privateKey);
 
     if (!sendPublicKey(clientSocket, publicKey, mod)) {
         close(clientSocket);
-        return -1;
+        return -1; 
     }
+    std::cout << "sent publickey: " << publicKey << " mod: " << mod << std::endl;
+    
+
+    // Start Diffie Hellman Exchange
+
+    if(!receiveDHPandG(clientSocket, pVal, gVal)) {
+	close(clientSocket);
+	return -1;
+    }
+
+    std::cout << "Received DH P: " << pVal << " and DH G: " << gVal << " from the server" << std::endl;
+
+    clientDHprivate = genPrivate(pVal);
+    std::cout << "client Private exponent: " << clientDHprivate << std::endl;
+    
+    clientDHpublic = computePublic(gVal, pVal, clientDHprivate);
+
+    if(!sendDHPublicKey(clientSocket, clientDHpublic)) {
+	close(clientSocket);
+	return -1;
+    }
+
+    std::cout<< " Sent DH public key: " << clientDHpublic << std::endl;
+
+    if(!receiveDHPublicKey(clientSocket, serverDHPublic)) {
+	close(clientSocket);
+	return -1 ;
+    }
+
+    std::cout << "Received DH public key from Server: " << serverDHPublic << std::endl;
 
     std::thread receiveThread(receiveMessages, clientSocket, privateKey, mod);
     receiveThread.detach();
