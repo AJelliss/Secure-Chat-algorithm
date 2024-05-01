@@ -9,7 +9,7 @@
 #include <random>
 #include <sstream>
 
-const int PORT = 8001;
+const int PORT = 8003;
 
 struct ClientInfo {
     int socket;
@@ -53,6 +53,20 @@ int modInverse(int a, int m) {
         if ((a * x) % m == 1) return x;
     }
     return -1;
+}
+
+int modExp(int base, int exponent, int modulus) {
+    if (modulus == 1)
+        return 0;
+    int result = 1;
+    base = base % modulus;
+    while (exponent > 0) {
+        if (exponent % 2 == 1)
+            result = (result * base) % modulus;
+        exponent = exponent >> 1;
+        base = (base * base) % modulus;
+    }
+    return result;
 }
 
 int modPow(int base, int exponent, int modulus) {
@@ -121,14 +135,12 @@ std::string rsaDecrypt(const std::string& encryptedMessage, int privateKey, int 
     return decryptedMessage;
 }
 
-std::string rsaEncrypt(const std::string& message, int publicKey, int modulus) {
-    std::string encryptedMessage;
-    for (char c : message) {
-        int m = static_cast<int>(c);
-        int encrypted = modPow(m, publicKey, modulus);
-        encryptedMessage += std::to_string(encrypted) + " ";
+std::vector<int> rsaEncrypt(const std::string &plaintext, int e, int n) {
+    std::vector<int> ciphertext;
+    for (char c : plaintext) {
+        ciphertext.push_back(modExp(c, e, n));
     }
-    return encryptedMessage;
+    return ciphertext;
 }
 
 void handleClient(int clientSocket) {
@@ -139,11 +151,6 @@ void handleClient(int clientSocket) {
     }
     
     std::cout << "Received public key from client: " << clientPublicKey << ", " << clientModulus << std::endl;
-
-    if (!sendPublicKey(clientSocket, serverPublicKey, serverModulus)) {
-        close(clientSocket);
-        return;
-    }
 
     clients.push_back({clientSocket, clientPublicKey, clientModulus});
 
@@ -162,8 +169,19 @@ void handleClient(int clientSocket) {
 
         for (const auto& otherClient : clients) {
             if (otherClient.socket != clientSocket) {
-                std::string encryptedMessage = rsaEncrypt(decryptedMessage, otherClient.publicKey, otherClient.modulus);
-                send(otherClient.socket, encryptedMessage.c_str(), encryptedMessage.length(), 0);
+                std::cout << "With key: " << otherClient.publicKey << std::endl;
+                std::stringstream ss;
+                std::vector<int> encryptedMessage = rsaEncrypt(decryptedMessage, otherClient.publicKey, otherClient.modulus);
+                std::cout << "Encrypted text: ";
+
+                for (int encryptedChar : encryptedMessage) {
+                    std::cout << encryptedChar << " ";
+                    ss << encryptedChar << " ";
+                }
+                std::cout << std::endl;
+
+                std::string result = ss.str();
+                send(otherClient.socket, result.c_str(), result.length(), 0);
             }
         }
     }
@@ -179,8 +197,8 @@ void handleClient(int clientSocket) {
 }
 
 int main() {
-    int p = 61;
-    int q = 53;
+    int p = generateRandomPrime(10,100);
+    int q = generateRandomPrime(10,100);
     int serverSocket, clientSocket;
     struct sockaddr_in serverAddress, clientAddress;
     socklen_t clientAddrLen = sizeof(clientAddress);
@@ -206,7 +224,6 @@ int main() {
 
     std::cout << "Server listening on port " << PORT << std::endl;
 
-    int mod, publicKey, privateKey;
     generateKeys(p, q, serverModulus, serverPublicKey, serverPrivateKey);
 
     while (true) {

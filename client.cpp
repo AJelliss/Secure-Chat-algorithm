@@ -9,7 +9,7 @@
 #include <vector>
 #include <sstream>
 
-const int PORT = 8001;
+const int PORT = 8003;
 const char* SERVER_ADDRESS = "127.0.0.1";
 
 bool isPrime(int num) {
@@ -56,6 +56,18 @@ void generateKeys(int p, int q, int &n, int &e, int &d) {
     d = modInverse(e, phi);
 }
 
+int modPow(int base, int exponent, int modulus) {
+    int result = 1;
+    base = base % modulus;
+    while (exponent > 0) {
+        if (exponent % 2 == 1)
+            result = (result * base) % modulus;
+        exponent = exponent >> 1;
+        base = (base * base) % modulus;
+    }
+    return result;
+}
+
 int modExp(int base, int exponent, int modulus) {
     if (modulus == 1)
         return 0;
@@ -70,7 +82,7 @@ int modExp(int base, int exponent, int modulus) {
     return result;
 }
 
-/* int generateRandomPrime(int min, int max) {
+ int generateRandomPrime(int min, int max) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(min, max);
@@ -80,7 +92,6 @@ int modExp(int base, int exponent, int modulus) {
     }
     return candidate;
 }
-*/
 
 bool sendPublicKey(int clientSocket, int publicKey, int modulus) {
     std::string keyMessage = std::to_string(publicKey) + "," + std::to_string(modulus);
@@ -120,12 +131,16 @@ std::vector<int> rsaEncrypt(const std::string &plaintext, int e, int n) {
     return ciphertext;
 }
 
-std::string rsaDecrypt(const std::vector<int> &ciphertext, int d, int n) {
-    std::string plaintext;
-    for (int encryptedChar : ciphertext) {
-        plaintext += modExp(encryptedChar, d, n);
+std::string rsaDecrypt(const std::string& encryptedMessage, int privateKey, int modulus) {
+    std::string decryptedMessage;
+    std::stringstream iss(encryptedMessage);
+    int encrypted;
+    while (iss >> encrypted) {
+        int decrypted = modPow(encrypted, privateKey, modulus);
+        decrypted = decrypted % 256;
+        decryptedMessage += static_cast<char>(decrypted);
     }
-    return plaintext;
+    return decryptedMessage;
 }
 
 void receiveMessages(int clientSocket, int privateKey, int modulus) {
@@ -137,21 +152,17 @@ void receiveMessages(int clientSocket, int privateKey, int modulus) {
             break;
         }
         buffer[valread] = '\0';
-        
-        std::vector<int> ciphertext;
-        std::stringstream ss(buffer);
-        std::string token;
-        while (std::getline(ss, token, ' ')) {
-            ciphertext.push_back(std::stoi(token));
-        }
-        std::string decryptedMessage = rsaDecrypt(ciphertext, privateKey, modulus);
+
+        std::cout << "Received encrypted message from client: " << buffer << std::endl;
+        std::string decryptedMessage = rsaDecrypt(buffer, privateKey, modulus);
+        std::cout << "Decrypting with: " << privateKey << modulus << std::endl;
         std::cout << "Received from server: " << decryptedMessage << std::endl;
     }
 }
 
 int main() {
-    int p = 61;
-    int q = 53;
+    int p = generateRandomPrime(10,100);
+    int q = generateRandomPrime(10,100);
     int clientSocket = 0;
     struct sockaddr_in serverAddress;
 
@@ -199,12 +210,14 @@ int main() {
         std::getline(std::cin, plaintext);
         std::stringstream ss;
 
-        std::vector<int> encrypted = rsaEncrypt(plaintext, publicKey, mod);
+        std::vector<int> encrypted = rsaEncrypt(plaintext, serverPublicKey, serverModulus);
         std::cout << "Encrypted text: ";
+
         for (int encryptedChar : encrypted) {
             std::cout << encryptedChar << " ";
             ss << encryptedChar << " ";
         }
+        std::cout << std::endl;
 
         std::string result = ss.str();
 
