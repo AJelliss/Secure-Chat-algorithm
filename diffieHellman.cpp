@@ -13,7 +13,7 @@ int genPrivate(int P) {
 
 std::pair<int, int> genParameters() {
     std::vector<std::pair<int, int>> paramPairs = {
-        {23, 2}, {47, 5}, {17, 3}, {29, 2}, {31, 5}, {19, 3}, {37, 2}
+        {23, 2}, {47, 5}, {17, 3}, {29, 2}, {31, 5}, {19, 3}, {37, 2}, {71,3}, {97,5}, {113,2}, {131,3}, {157,2}
     };
     srand(time(NULL));
     int position = rand() % paramPairs.size();

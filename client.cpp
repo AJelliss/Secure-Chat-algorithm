@@ -9,6 +9,7 @@
 #include <vector>
 #include <sstream>
 #include "diffieHellman.cpp"
+#include "CaesarCipher.cpp"
 
 const int PORT = 8003;
 const char* SERVER_ADDRESS = "127.0.0.1";
@@ -194,7 +195,7 @@ std::string rsaDecrypt(const std::string& encryptedMessage, int privateKey, int 
     return decryptedMessage;
 }
 
-void receiveMessages(int clientSocket, int privateKey, int modulus) {
+void receiveMessages(int clientSocket, int privateKey, int modulus, int serverDHPublic, int clientDHprivate, int pVal) {
     char buffer[1024];
     while (true) {
         int valread = read(clientSocket, buffer, 1024);
@@ -207,7 +208,9 @@ void receiveMessages(int clientSocket, int privateKey, int modulus) {
         std::cout << "Received encrypted message from client: " << buffer << std::endl;
         std::string decryptedMessage = rsaDecrypt(buffer, privateKey, modulus);
         std::cout << "Decrypting with: " << privateKey << modulus << std::endl;
-        std::cout << "Received from server: " << decryptedMessage << std::endl;
+	int caesarKey = resolveKey(serverDHPublic, clientDHprivate, pVal);
+	std::string plaintext = caesarDecrypt(caesarKey, decryptedMessage.c_str());
+        std::cout << "Received from server: " << plaintext << std::endl;
     }
 }
 
@@ -286,15 +289,17 @@ int main() {
 
     std::cout << "Received DH public key from Server: " << serverDHPublic << std::endl;
 
-    std::thread receiveThread(receiveMessages, clientSocket, privateKey, mod);
+    std::thread receiveThread(receiveMessages, clientSocket, privateKey, mod, serverDHPublic, clientDHprivate, pVal);
     receiveThread.detach();
-
+    // sending 
     while (true) {
         std::string plaintext;
         std::getline(std::cin, plaintext);
         std::stringstream ss;
-
-        std::vector<int> encrypted = rsaEncrypt(plaintext, serverPublicKey, serverModulus);
+	
+	int caesarKey = resolveKey(serverDHPublic, clientDHprivate, pVal);
+	std::string caesarCiphertext = caesarEncrypt(caesarKey, plaintext.c_str());
+        std::vector<int> encrypted = rsaEncrypt(caesarCiphertext, serverPublicKey, serverModulus);
         std::cout << "Encrypted text: ";
 
         for (int encryptedChar : encrypted) {

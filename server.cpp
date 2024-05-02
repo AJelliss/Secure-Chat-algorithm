@@ -9,6 +9,7 @@
 #include <random>
 #include <sstream>
 #include "diffieHellman.cpp"
+#include "CaesarCipher.cpp"
 
 const int PORT = 8003;
 
@@ -16,8 +17,8 @@ struct ClientInfo {
     int socket;
     int publicKey;
     int modulus;
-    int dhClientPublic;
-    int dhServerPrivate;
+    int clientDHpublic;
+    int serverDHPrivate;
 };
 
 std::vector<ClientInfo> clients;
@@ -229,7 +230,7 @@ void handleClient(int clientSocket) {
     clients.push_back({clientSocket, clientPublicKey, clientModulus, clientDHpublic, serverDHPrivate });
     
 
-
+    // Receiving stuff
     char buffer[1024];
     while (true) {
         int valread = read(clientSocket, buffer, 1024);
@@ -238,16 +239,22 @@ void handleClient(int clientSocket) {
             break;
         }
         buffer[valread] = '\0'; 
-
+	
         std::cout << "Received encrypted message from client: " << buffer << std::endl;
         std::string decryptedMessage = rsaDecrypt(buffer, serverPrivateKey, serverModulus);
-        std::cout << "Received from client: " << decryptedMessage << std::endl;
+	int caesarKey = resolveKey(clientDHpublic, serverDHPrivate, pVal);
+	std::string plaintext = caesarDecrypt(caesarKey, decryptedMessage.c_str()); 
+
+        std::cout << "Received from client: " << plaintext << std::endl;
 
         for (const auto& otherClient : clients) {
+	    // sending stuff
             if (otherClient.socket != clientSocket) {
                 std::cout << "With key: " << otherClient.publicKey << std::endl;
                 std::stringstream ss;
-                std::vector<int> encryptedMessage = rsaEncrypt(decryptedMessage, otherClient.publicKey, otherClient.modulus);
+		int caesarSendKey = resolveKey(otherClient.clientDHpublic, otherClient.serverDHPrivate, pVal);
+		std::string caesarReEncrypt = caesarEncrypt(caesarSendKey,plaintext.c_str());
+                std::vector<int> encryptedMessage = rsaEncrypt(caesarReEncrypt, otherClient.publicKey, otherClient.modulus);
                 std::cout << "Encrypted text: ";
 
                 for (int encryptedChar : encryptedMessage) {

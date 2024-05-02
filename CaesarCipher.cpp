@@ -3,13 +3,13 @@
 #include <unistd.h>
 #include <cmath>
 
- char* encrypt(int key, const char* plainText) {
+ char* caesarEncrypt(int key, const char* plainText) {
     char* cipherText = new char[1024];
 
     for (int i = 0; i < 1024; i++) {
 	if (std::isalpha(plainText[i])) {
 	    char alphaCase; 
-	    if (std::isupper(plainText[1])) {
+	    if (std::isupper(plainText[i])) {
 		alphaCase = 'A';
 	    }
 	    else {
@@ -26,13 +26,13 @@
  }
 
 
- char* decrypt(int key, const char* cipherText) {
+ char* caesarDecrypt(int key, const char* cipherText) {
     char* plainText = new char[1024];
 
     for (int i = 0; i < 1024; i++) {
 	if (std::isalpha(cipherText[i])) {
 	    char alphaCase; 
-	    if (std::isupper(cipherText[1])) {
+	    if (std::isupper(cipherText[i])) {
 		alphaCase = 'A';
 	    }
 	    else {
